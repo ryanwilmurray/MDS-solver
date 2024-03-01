@@ -49,10 +49,11 @@ class MM:
         self.cost = self.get_cost()
         
         
-    def get_cost(self) -> float:
-        
+    def get_cost(self,Y=None) -> float:
+        if Y is None:
+            Y=self.Y
         dissim = (self.X.T * self.X.T) @ np.ones((self.d, self.n)) - 2 * self.X.T @ self.X + np.ones((self.n, self.d)) @ (self.X * self.X) - (
-                       (self.Y.T * self.Y.T) @ np.ones((self.m, self.n)) - 2 * self.Y.T @ self.Y + np.ones((self.n, self.m)) @ (self.Y * self.Y)).astype('float64')
+                       (Y.T * Y.T) @ np.ones((self.m, self.n)) - 2 * Y.T @ Y + np.ones((self.n, self.m)) @ (Y * Y)).astype('float64')
         c = ((np.tensordot(dissim, dissim) / 2)/(self.n**2))**(1/4)
         return c
    
@@ -74,7 +75,7 @@ class MM:
     def update_state(self, step_size = 100, iterations=1000):
         Y = self.quartic_descent_vectorized(self.psi, self.phi.T, step_size, iterations).T
         self.Y = Y-np.mean(Y, axis=1, keepdims=True)
-        self. Y /= np.std(self.Y,axis=1, keepdims = True)
+        #self. Y /= np.std(self.Y,axis=1, keepdims = True)
         self.psi, self.phi = self.find_moment_matrices() 
         self.cost = self.get_cost()
         
@@ -155,7 +156,7 @@ class MM:
 
     def visualize(self):
         current_cost = self.cost
-        formatted_cost = f"{current_cost:.4e}"
+        formatted_cost = f"{current_cost:.4}"
         unique_labels = np.unique(self.labels)
         colormap = ListedColormap(plt.cm.gist_rainbow(np.linspace(0, 1, len(unique_labels))))
         norm = BoundaryNorm(np.arange(len(unique_labels)+1)-0.5, len(unique_labels))
@@ -178,12 +179,14 @@ class MM:
         plt.title(f'Phi')
         
         Z = self.quartic_initialization_vectorized(self.psi, self.phi.T).T
+        init_cost = self.get_cost(Z)
+        formatted_init_cost = f"{init_cost:.4}"
         plt.subplot(1, 3, 3)
         plt.scatter(Z[0, :], Z[1, :], c=self.labels, cmap=colormap, norm=norm, alpha=0.75,clip_on = False)
         cbar = plt.colorbar(ticks=np.arange(len(unique_labels)))
         cbar.set_ticklabels(unique_labels)
         cbar.set_label('Labels')
-        plt.title(f'Y0')
+        plt.title(f'Y0 cost={formatted_init_cost}')
         
         plt.tight_layout()
         #plt.show()
