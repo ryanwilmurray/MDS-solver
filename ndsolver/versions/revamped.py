@@ -71,19 +71,12 @@ class MM:
         return psi, phi
     
     
-    def update_state(self, step_size = 100, iterations=1000, stage_1 = False):
-        if stage_1:
-            Y = self.quartic_descent_vectorized(self.psi, self.phi.T, step_size, iterations).T
-            self.Y = Y-np.mean(Y, axis=1, keepdims=True)
-            #self. Y /= np.std(self.Y,axis=1, keepdims = True)
-            self.psi, self.phi = self.find_moment_matrices() 
-            self.cost = self.get_cost()
-        else:
-            Y = self.quartic_descent_vectorized(self.psi, self.phi.T, step_size, iterations).T
-            self.Y = Y-np.mean(Y, axis=1, keepdims=True)
-            #self. Y /= np.std(self.Y,axis=1, keepdims = True)
-            self.psi, self.phi = self.find_moment_matrices() 
-            self.cost = self.get_cost()
+    def update_state(self, step_size = 100, iterations=1000):
+        Y = self.quartic_descent_vectorized(self.psi, self.phi.T, step_size, iterations).T
+        self.Y = Y-np.mean(Y, axis=1, keepdims=True)
+        self. Y /= np.std(self.Y,axis=1, keepdims = True)
+        self.psi, self.phi = self.find_moment_matrices() 
+        self.cost = self.get_cost()
         
         
 
@@ -101,53 +94,40 @@ class MM:
         # Get broadcasted vector of eigenvalues (n x m) and matrix of eigenvectors (n x m x m)
         v, V = LA.eig(A)
 
-        # TODO: remove this check, or replace it with somehting robust
-        if np.any(np.abs(v[:,0]-v[:,1]) < 1):
+        isotropic_guys = np.abs(v[:,0]-v[:,1]) < 1
 
-            k = np.einsum('ikj,ik->ij', V, b)
-            # TODO: in the non guassian case, there are likely three roots
-            # we think we want the largest root, but we should check this
-            lengths = vectorized_depressed_cubic_roots(v,k)
+
+        k = np.einsum('ikj,ik->ij', V, b)
+        lengths = vectorized_depressed_cubic_roots(v,k)
             
             
-            mag_k = np.expand_dims(LA.norm(k, axis = 1), axis = 1)
-            I1 = (np.sum(v, axis=1,keepdims = True) / v.shape[1])*lengths**2-5*mag_k*lengths
-            indices = np.argmax(I1, axis=1)
-            opt_lengths = lengths[np.arange(self.n),indices]
-            unit_phi = k/mag_k
-            unit_phi *= np.expand_dims(opt_lengths, axis = 1)
-            y0 = np.einsum('ijk,ik->ij', V, unit_phi)
+        mag_k = np.expand_dims(LA.norm(k, axis = 1), axis = 1)
+        I1 = (np.sum(v, axis=1,keepdims = True) / v.shape[1])*lengths**2+3*mag_k*lengths
+        indices_ = np.argmax(I1, axis=1)
+        opt_lengths = lengths[np.arange(self.n),indices_]
+        unit_phi = k/mag_k
+        unit_phi *= np.expand_dims(opt_lengths, axis = 1)
+        y0_ = np.einsum('ijk,ik->ij', V, unit_phi)
             
 
-        else:
+        happy_points = np.all(v<0,axis=1)
+        v = np.maximum(v, 0)
+        for i in range(k.shape[0]):
+            for j in range(k.shape[1]):
+                if k[i, j] == 0:
+                    k[i, j] = np.random.choice([-1, 1])
 
-            # cap negative eigenvalues at 0
-              # TODO: undo?
-            # consider points with both eigenvalues negative:
-            # if the following statement gives a 'True' then both evals are negative
-            happy_points = np.all(v<0,axis=1)
-            v = np.maximum(v, 0)
-            # construct k (n x m) by condensing V.T @ b into a matrix
-            k = np.einsum('ikj,ik->ij', V, b)
-            # if k is zero, it would initialize to (0, 0)
-            # k[k == 0] = 1
-            for i in range(k.shape[0]):
-                for j in range(k.shape[1]):
-                    if k[i, j] == 0:
-                        k[i, j] = np.random.choice([-1, 1])
 
-            # find indices of deepest well per row (n,)
-            wells = v**2 + 4*np.abs(k) * np.sqrt(v)
-            indices = np.argmax(wells, axis=1)
+        wells = v**2 + 4*np.abs(k) * np.sqrt(v)
+        indices = np.argmax(wells, axis=1)
+        z0 = np.zeros(b.shape)
+        z0[np.arange(b.shape[0]), indices] = 1
+        z0 *= np.sqrt(v) * -np.sign(k)
 
-            # zero out all indices except the deepest wells
-            z0 = np.zeros(b.shape)
-            z0[np.arange(b.shape[0]), indices] = 1
-            z0 *= np.sqrt(v) * -np.sign(k)
 
-            # calculate y0 by condensing V @ z0 into a matrix
-            y0 = np.einsum('ijk,ik->ij', V, z0)
-            y0[happy_points] = 0
+        y0 = np.einsum('ijk,ik->ij', V, z0)
+        y0[happy_points] = 0
+        y0[isotropic_guys] = y0_[isotropic_guys]
 
         return y0
 
@@ -180,25 +160,33 @@ class MM:
         colormap = ListedColormap(plt.cm.gist_rainbow(np.linspace(0, 1, len(unique_labels))))
         norm = BoundaryNorm(np.arange(len(unique_labels)+1)-0.5, len(unique_labels))
 
-        plt.figure(figsize=(12, 5))  # Adjusted figure size to accommodate 3 plots
+        plt.figure(figsize=(18, 5))  # Adjusted figure size to accommodate 3 plots
 
         # First plot: Visualization based on labels
-        plt.subplot(1, 2, 1)
+        plt.subplot(1, 3, 1)
         plt.scatter(self.Y[0, :], self.Y[1, :], c=self.labels, cmap=colormap, norm=norm, alpha=0.75)
         cbar = plt.colorbar(ticks=np.arange(len(unique_labels)))
         cbar.set_ticklabels(unique_labels)
         cbar.set_label('Labels')
         plt.title(f'qMDS Cost = {formatted_cost}')
         
-        plt.subplot(1, 2, 2)
+        plt.subplot(1, 3, 2)
         plt.scatter(self.phi[0, :], self.phi[1, :], c=self.labels, cmap=colormap, norm=norm, alpha=0.75)
         cbar = plt.colorbar(ticks=np.arange(len(unique_labels)))
         cbar.set_ticklabels(unique_labels)
         cbar.set_label('Labels')
         plt.title(f'Phi')
-
+        
+        Z = self.quartic_initialization_vectorized(self.psi, self.phi.T).T
+        plt.subplot(1, 3, 3)
+        plt.scatter(Z[0, :], Z[1, :], c=self.labels, cmap=colormap, norm=norm, alpha=0.75,clip_on = False)
+        cbar = plt.colorbar(ticks=np.arange(len(unique_labels)))
+        cbar.set_ticklabels(unique_labels)
+        cbar.set_label('Labels')
+        plt.title(f'Y0')
+        
         plt.tight_layout()
-        plt.show()
+        #plt.show()
         
         
     def critical_lengths(self) -> np.ndarray:
