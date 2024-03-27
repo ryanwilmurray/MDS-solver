@@ -72,12 +72,23 @@ class MM:
         return psi, phi
     
     
-    def update_state(self, step_size = 100, iterations=1000):
-        Y = self.quartic_descent_vectorized(self.psi, self.phi.T, step_size, iterations).T
-        self.Y = Y-np.mean(Y, axis=1, keepdims=True)
-        #self. Y /= np.std(self.Y,axis=1, keepdims = True)
-        self.psi, self.phi = self.find_moment_matrices() 
-        self.cost = self.get_cost()
+    def update_state(self, step_size = 0.025, iterations=1000, grad = False):
+        if grad == True:
+            for i in range(iterations//10):
+                print(i)
+                dissim = (self.X.T * self.X.T) @ np.ones((self.d, self.n)) - 2 * self.X.T @ self.X + np.ones((self.n, self.d)) @ (self.X * self.X) - (
+                        (self.Y.T * self.Y.T) @ np.ones((self.m, self.n)) - 2 * self.Y.T @ self.Y + np.ones((self.n, self.m)) @ (self.Y * self.Y)).astype('float64')
+                coord_diff = self.Y[:, :, None] - self.Y[:, None, :]
+                interaction = coord_diff * dissim
+                g = np.sum(interaction, axis=1) / self.n
+                self.Y-=step_size*g
+            self.Y -=np.mean(self.Y, axis=1, keepdims=True)
+        else:
+            Y = self.quartic_descent_vectorized(self.psi, self.phi.T, step_size, iterations).T
+            self.Y = Y-np.mean(Y, axis=1, keepdims=True)
+            #self. Y /= np.std(self.Y,axis=1, keepdims = True)
+            self.psi, self.phi = self.find_moment_matrices() 
+            self.cost = self.get_cost()
         
         
 
